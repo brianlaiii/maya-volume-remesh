@@ -7,7 +7,14 @@ The tool unions solids into a closed quad mesh. It preserves source geometry,
 follows connected inputs and keeps useful parameters on the `btDynaMesh` node.
 There is no custom tool window.
 
-The demonstration GIF is coming after recording. See [demo media](docs/media/README.md).
+## Demo
+
+[![Watch the DynaMesh in Maya demo on YouTube](https://i.ytimg.com/vi/sO4TOyiK6mw/hqdefault.jpg)](https://youtu.be/sO4TOyiK6mw)
+
+[Watch the 33-second demo on YouTube](https://youtu.be/sO4TOyiK6mw).
+It shows mesh union, resolution changes, quad wireframes and sculpting in Maya.
+
+See [demo media](docs/media/README.md) for an optional local GIF preview.
 
 ## Features
 
