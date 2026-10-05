@@ -1,0 +1,24 @@
+# Native outputs and Python caches.
+**/plug-ins/
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.pytest_cache/
+.DS_Store
+
+# Keep generated scenes, media sources and large test data outside this repo.
+*.ma
+*.mb
+*.obj
+*.fbx
+*.abc
+*.usd
+*.usdc
+*.usda
+*.mov
+*.mp4
+*.mkv
+*.avi
+*.log
+build/
+dist/

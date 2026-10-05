@@ -1,0 +1,33 @@
+name: Solver and package tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-tests:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ['3.10', '3.13']
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Independent scalar and native geometry
+        run: python -m unittest discover -s tests -p 'test_dynamesh_solver.py' -v
+      - name: Standalone imports and installer
+        run: python -m unittest discover -s tests -p 'test_standalone_package.py' -v
+      - name: Owned runtime deployment
+        run: python -m unittest discover -s tests -p 'test_dual_backend_loader.py' -v
