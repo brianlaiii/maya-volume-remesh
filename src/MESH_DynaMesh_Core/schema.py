@@ -1,13 +1,20 @@
 """The saved-scene schema shared by both DynaMesh node implementations."""
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 NODE_NAME = "btDynaMesh"
 TYPE_ID = 0x0012E55A
 
 # name, kind, default, minimum, maximum, tooltip
 PARAMETERS = (
     ("enabled", "bool", True, None, None, "Rebuild the volume. Off passes the first input through."),
-    ("resolution", "int", 128, 16, 512, "Voxel divisions across the longest world-space bound."),
+    (
+        "resolution",
+        "int",
+        128,
+        1,
+        None,
+        "Voxel divisions across the longest world-space bound. OpenVDB has no fixed ceiling.",
+    ),
     ("polish", "int", 1, 0, 10, "Surface-fitted smoothing passes. Uses the cached volume."),
     ("offset", "distance", 0.0, None, None, "Move the rebuilt surface along its vertex normals."),
     ("useSmoothPreview", "bool", True, None, None, "Use each source's active Smooth Mesh Preview."),

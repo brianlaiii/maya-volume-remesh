@@ -22,6 +22,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include "openvdb_loader.h"
 
 namespace {
 enum Attr { Enabled, Resolution, Polish, Offset, Preview, SmoothNormals,
@@ -50,6 +51,8 @@ class DynaMeshNode:public MPxNode {
     Prepared prepared;
     std::shared_ptr<Workspace> workspace;
     Mesh polished;
+    mvr_openvdb::Cache vdb;
+    bool vdbEngine=false;
 public:
     static MObject attrs[AttrCount];
     static MTypeId id;
@@ -57,6 +60,7 @@ public:
     static MStatus initialize();
     MStatus compute(const MPlug& plug,MDataBlock& block) override;
     SchedulingType schedulingType() const override { return kSerial; }
+    Mesh evaluate(const InputBuffers& input,int resolution,int polish,std::string& backend,std::string& details);
 };
 MObject DynaMeshNode::attrs[AttrCount];
 MTypeId DynaMeshNode::id(0x0012E55A);
@@ -69,7 +73,7 @@ MStatus DynaMeshNode::initialize() {
             MFnNumericAttribute fn;
             bool boolean=i==Enabled || i==Preview || i==SmoothNormals;
             attrs[i]=fn.create(names[i],names[i],boolean ? MFnNumericData::kBoolean : MFnNumericData::kInt,i==Resolution ? 128 : 1);
-            if (i==Resolution) { fn.setMin(16); fn.setMax(512); }
+            if (i==Resolution) { fn.setMin(1); fn.setSoftMin(16); fn.setSoftMax(512); }
             if (i==Polish) { fn.setMin(0); fn.setMax(10); }
             fn.setKeyable(true);
         }
@@ -102,6 +106,50 @@ MStatus DynaMeshNode::initialize() {
     for (int input=Enabled;input<=InputSmoothLevel;++input)
         for (int output=OutputMesh;output<AttrCount;++output) attributeAffects(attrs[input],attrs[output]);
     return MS::kSuccess;
+}
+
+Mesh DynaMeshNode::evaluate(const InputBuffers& input,int resolution,int polish,std::string& backend,std::string& details) {
+    if (mvr_openvdb::api()) {
+        try {
+            if (!vdb.base || !vdbEngine || resolution!=savedResolution || !(input==savedInput)) {
+                vdb.build(input.points.data(),int(input.points.size()/3),input.triangles.data(),int(input.triangles.size()/3),
+                          input.vertices.data(),input.faces.data(),int(input.vertices.size())-1,input.matrices.data(),resolution);
+                savedInput=input; savedResolution=resolution; savedPolish=-1; ++builds;
+                vdbEngine=true; workspace.reset();
+            }
+            if (polish!=savedPolish) {
+                auto output=vdb.polished(polish);
+                polished.points=std::move(output.points); polished.quads=std::move(output.quads);
+                polished.spacing=output.spacing; polished.closedBorders=output.closed; savedPolish=polish;
+            }
+            backend="OpenVDB"; details="Sparse narrow-band level set";
+            return polished;
+        } catch (const mvr_openvdb::Unavailable& error) {
+            mvr_openvdb::failed=true; mvr_openvdb::reason=error.what();
+            MGlobal::displayWarning((std::string("OpenVDB unavailable; using built-in C++. ")+error.what()).c_str());
+        }
+    }
+    if (!workspace || vdbEngine || resolution!=savedResolution || !(input==savedInput)) {
+        auto nextPrepared=prepare(input.points.data(),int(input.points.size()/3),input.triangles.data(),int(input.triangles.size()/3),
+                                  input.vertices.data(),input.faces.data(),int(input.vertices.size())-1,input.matrices.data(),resolution,nullptr);
+        std::shared_ptr<Workspace> nextWorkspace;
+        auto base=build(nextPrepared.points.data(),int(nextPrepared.points.size()/3),nextPrepared.triangles.data(),int(nextPrepared.triangles.size()/3),
+                        nextPrepared.offsets.data(),int(nextPrepared.offsets.size())-1,nextPrepared.dimensions.data(),0,nullptr,&nextWorkspace);
+        validate(*base,nullptr);
+        prepared=std::move(nextPrepared); workspace=std::move(nextWorkspace); savedInput=input;
+        savedResolution=resolution; savedPolish=-1; ++builds; vdbEngine=false; vdb.base.reset();
+    }
+    if (polish!=savedPolish) {
+        Mesh next=workspace->base; polishMesh(next,*workspace,polish,nullptr);
+        polished=std::move(next); savedPolish=polish;
+    }
+    Mesh mesh=polished;
+    for (auto& p:mesh.points) for (int k=0;k<3;++k) p[k]=prepared.origin[k]+p[k]*prepared.spacing;
+    mesh.spacing=prepared.spacing; mesh.closedBorders=prepared.closedBorders;
+    backend=workspace->field->backend;
+    details="OpenVDB unavailable: "+mvr_openvdb::reason;
+    if (!workspace->field->reason.empty()) details+="; "+workspace->field->reason;
+    return mesh;
 }
 
 MStatus DynaMeshNode::compute(const MPlug& plug,MDataBlock& block) {
@@ -141,12 +189,12 @@ MStatus DynaMeshNode::compute(const MPlug& plug,MDataBlock& block) {
             bool smooth=enabled && preview && value.child(attrs[InputPreview]).asInt()!=0;
             if (smooth) {
                 int level=value.child(attrs[InputSmoothLevel]).asInt();
-                if (level<0 || level>7 || fn.numPolygons()*std::pow(4.0,level)>2000000)
+                if (level<0 || (!mvr_openvdb::api() && (level>7 || fn.numPolygons()*std::pow(4.0,level)>2000000)))
                     throw std::runtime_error("Smooth preview exceeds two million faces. Lower the source preview level");
                 source=value.child(attrs[InputSmoothMesh]).asMesh();
                 require(fn.setObject(source),"Could not read Smooth Mesh Preview");
             }
-            if (fn.numPolygons()>2000000) throw std::runtime_error("Input exceeds two million faces");
+            if (!mvr_openvdb::api() && fn.numPolygons()>2000000) throw std::runtime_error("Built-in solver input exceeds two million faces");
             if (!enabled) continue;
             MPointArray points; MIntArray counts,triangles;
             require(fn.getPoints(points,MSpace::kObject),"Could not read input points");
@@ -162,22 +210,7 @@ MStatus DynaMeshNode::compute(const MPlug& plug,MDataBlock& block) {
             status="Disabled; first input passed through"; backend="Pass through"; passthrough();
         } else {
             int resolution=block.inputValue(attrs[Resolution]).asInt(),polish=block.inputValue(attrs[Polish]).asInt();
-            if (resolution!=savedResolution || !(input==savedInput) || !workspace) {
-                auto newPrepared=prepare(input.points.data(),int(input.points.size()/3),input.triangles.data(),int(input.triangles.size()/3),
-                                         input.vertices.data(),input.faces.data(),int(input.vertices.size())-1,input.matrices.data(),resolution,nullptr);
-                std::shared_ptr<Workspace> newWorkspace;
-                auto base=build(newPrepared.points.data(),int(newPrepared.points.size()/3),newPrepared.triangles.data(),int(newPrepared.triangles.size()/3),
-                                newPrepared.offsets.data(),int(newPrepared.offsets.size())-1,newPrepared.dimensions.data(),0,nullptr,&newWorkspace);
-                validate(*base,nullptr);
-                prepared=std::move(newPrepared); workspace=std::move(newWorkspace); savedInput=std::move(input);
-                savedResolution=resolution; savedPolish=-1; ++builds;
-            }
-            if (polish!=savedPolish) {
-                Mesh next=workspace->base; polishMesh(next,*workspace,polish,nullptr);
-                polished=std::move(next); savedPolish=polish;
-            }
-            Mesh mesh=polished;
-            for (auto& p:mesh.points) for (int k=0;k<3;++k) p[k]=prepared.origin[k]+p[k]*prepared.spacing;
+            Mesh mesh=evaluate(input,resolution,polish,backend,backendReason);
             double offset=block.inputValue(attrs[Offset]).asDistance().asCentimeters();
             if (!std::isfinite(offset)) throw std::runtime_error("Offset must be finite");
             if (offset) {
@@ -209,9 +242,7 @@ MStatus DynaMeshNode::compute(const MPlug& plug,MDataBlock& block) {
             bool soft=block.inputValue(attrs[SmoothNormals]).asBool();
             for (int i=0;i<fn.numEdges();++i) fn.setEdgeSmoothing(i,soft);
             fn.cleanupEdgeSmoothing();
-            vertexCount=fn.numVertices(); faceCount=fn.numPolygons(); width=prepared.spacing; closedBorders=prepared.closedBorders;
-            backend=workspace->field->backend;
-            backendReason=workspace->field->reason;
+            vertexCount=fn.numVertices(); faceCount=fn.numPolygons(); width=mesh.spacing; closedBorders=mesh.closedBorders;
         }
     } catch (const std::exception& error) {
         status=std::string("Invalid: ")+error.what()+". First input passed through."; backend="Pass through";
@@ -231,12 +262,15 @@ MStatus DynaMeshNode::compute(const MPlug& plug,MDataBlock& block) {
 } // namespace
 
 MStatus initializePlugin(MObject object) {
-    MFnPlugin plugin(object,"Brian Lai","1.0.0","Any");
+    MFnPlugin plugin(object,"Brian Lai","1.1.0","Any");
     std::filesystem::path folder(plugin.loadPath().asChar());
     if (!std::filesystem::is_directory(folder)) folder=folder.parent_path();
     std::ifstream manifest(folder/"btDynaMeshCuda.path");
     std::string file; if (std::getline(manifest,file) && std::filesystem::path(file).filename()==file)
         bt_dynamesh::cudaLibrary=(folder/file).string();
+    std::ifstream vdbManifest(folder/"btDynaMeshVdb.path");
+    if (std::getline(vdbManifest,file) && std::filesystem::path(file).filename()==file)
+        mvr_openvdb::libraryPath=(folder/file).string();
     MStatus code=plugin.registerNode("btDynaMesh",DynaMeshNode::id,DynaMeshNode::creator,DynaMeshNode::initialize);
     if (!code) return code;
     const char* ae=R"MEL(global proc AEbtDynaMeshTemplate(string $nodeName) {

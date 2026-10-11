@@ -27,7 +27,8 @@ class StandalonePackageTests(unittest.TestCase):
 sys.path.insert(0,sys.argv[1])
 class BlockPrivate(importlib.abc.MetaPathFinder):
     def find_spec(self,fullname,path=None,target=None):
-        if fullname.split(".")[0] in ("brian_tools", "maya", "numpy", "PySide2", "PySide6"):
+        if fullname.split(".")[0] in ("brian_tools", "maya", "numpy", "PySide2", "PySide6") or fullname in (
+            "MESH_DynaMesh_Core.native", "MESH_DynaMesh_Core.openvdb", "MESH_DynaMesh_Core.vdb_build"):
             raise AssertionError("Unexpected dependency: "+fullname)
 sys.meta_path.insert(0,BlockPrivate())
 import maya_volume_remesh
@@ -55,7 +56,7 @@ print("standalone scalar solve passed")
         with tempfile.TemporaryDirectory(prefix="mvr-module-install-") as folder:
             target = installer.install(folder)
             payload = target.read_text()
-            self.assertIn("+ maya_volume_remesh 0.1.0 " + str(ROOT), payload)
+            self.assertIn("+ maya_volume_remesh 0.2.0 " + str(ROOT), payload)
             self.assertIn("scripts: src", payload)
             self.assertIn("PYTHONPATH+:=src", payload)
             modified = target.stat().st_mtime_ns

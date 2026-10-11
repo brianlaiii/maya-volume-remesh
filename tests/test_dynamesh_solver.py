@@ -82,6 +82,11 @@ def volume(result):
 
 
 class DynaMeshTests(unittest.TestCase):
+    def setUp(self):
+        settings = patch.dict(os.environ, MAYA_VOLUME_REMESH_OPENVDB="off")
+        settings.start()
+        self.addCleanup(settings.stop)
+
     def test_cpp_owns_prepare_and_validation_for_packed_maya_data(self):
         p, t = cube()
         t = t[:2] + t[4:]

@@ -11,6 +11,7 @@ from array import array
 from collections import defaultdict
 from dataclasses import dataclass
 import math
+import os
 
 
 MAX_SAMPLES = 32_000_000
@@ -412,14 +413,18 @@ def validate_result(result, progress=None):
     return result
 
 
-def remesh(meshes, resolution=128, smoothing=1, backend="cpp", progress=None):
+def remesh(meshes, resolution=128, smoothing=1, backend="auto", progress=None):
     """Compute and validate a mesh without importing Maya or editing a scene."""
     if isinstance(smoothing, bool) or int(smoothing) != smoothing or not 0 <= smoothing <= 10:
         raise ValueError("Polish must be a whole number from 0 to 10.")
-    if backend not in ("auto", "cpp", "python"):
-        raise ValueError("Backend must be auto, cpp, or python.")
-    if isinstance(resolution, bool) or int(resolution) != resolution or not 16 <= resolution <= 512:
-        raise ValueError("Resolution must be a whole number from 16 to 512.")
+    if backend not in ("auto", "cpp", "python", "openvdb"):
+        raise ValueError("Backend must be auto, openvdb, cpp, or python.")
+    if backend == "auto":
+        backend = os.environ.get("MAYA_VOLUME_REMESH_BACKEND", "auto").lower()
+        if backend not in ("auto", "cpp", "python", "openvdb"):
+            raise ValueError("MAYA_VOLUME_REMESH_BACKEND must be auto, openvdb, cpp, or python.")
+    if isinstance(resolution, bool) or int(resolution) != resolution or not 1 <= resolution <= 2_147_483_647:
+        raise ValueError("Resolution must be a positive whole number within Maya's integer range.")
     if backend == "python":
         report(progress, 0, "Python: checking source shells")
         return validate_result(python_solve(prepare(meshes, resolution, progress), smoothing, progress), progress)

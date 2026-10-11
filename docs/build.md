@@ -3,6 +3,31 @@
 The node uses the Maya SDK. The standalone solver library needs only a C++17 compiler.
 The CUDA sidecar is optional and needs no Maya SDK. Generated outputs are ignored by Git.
 
+## Optional OpenVDB
+
+OpenVDB is built as a separate Maya-independent library. The main Maya plugin does
+not include OpenVDB headers or link to OpenVDB/TBB. A missing sidecar or runtime can
+therefore recover with the built-in C++ implementation.
+
+Install compatible OpenVDB/TBB headers and runtime libraries. Standard prefixes are
+discovered automatically. Set `MAYA_VOLUME_REMESH_OPENVDB_ROOT` to another SDK prefix.
+The SDK must match the running process architecture. Keep its runtime libraries available.
+
+```bash
+PYTHONPATH=src python -m MESH_DynaMesh_Core.vdb_build
+```
+
+Generated OpenVDB binaries use an external temporary cache. Override it with
+`MAYA_VOLUME_REMESH_CACHE_DIR`. `MAYA_VOLUME_REMESH_OPENVDB_LIBRARY` accepts a matching
+prebuilt sidecar; Windows currently requires that path. These builders do not download
+or vendor OpenVDB, TBB, or Autodesk libraries.
+
+The Maya loader installs an immutable sidecar and a relative `btDynaMeshVdb.path`
+manifest beside the existing native plugin. Its ownership marker protects edited
+manifests. Active runtimes are never replaced. Save and restart Maya after runtime
+changes. Saved native scenes can reopen without this source checkout; a missing
+OpenVDB dependency uses built-in C++ at the requested Resolution when supported.
+
 ## Maya node
 
 macOS example:
@@ -39,6 +64,7 @@ solver directly and does not transfer geometry through ctypes.
 ## CUDA
 
 CUDA is currently an experimental Linux x86_64 sidecar.
+It is only used by the built-in C++ solver, after OpenVDB is disabled or unavailable.
 Automatic preparation finds nvcc from `CUDACXX`, PATH or CUDA Toolkit roots.
 To build explicitly:
 

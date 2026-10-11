@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from MESH_DynaMesh_Core import scene, schema, runtime, solver
 
 BACKEND = os.environ.get("BT_DM_NODE_BACKEND", "cpp")
+os.environ["MAYA_VOLUME_REMESH_OPENVDB"] = "off"
 DEPLOYMENT = tempfile.mkdtemp(prefix="bt-dynamesh-node-runtime-")
 os.environ[runtime.PLUGIN_DIR_ENV] = DEPLOYMENT
 
@@ -84,6 +85,7 @@ class DynaMeshNodeTests(unittest.TestCase):
             )
             if lo is not None:
                 self.assertEqual(cmds.attributeQuery(name, node=node, minimum=True), [float(lo)])
+            if hi is not None:
                 self.assertEqual(cmds.attributeQuery(name, node=node, maximum=True), [float(hi)])
         for name in schema.OUTPUTS:
             self.assertFalse(cmds.attributeQuery(name, node=node, writable=True))

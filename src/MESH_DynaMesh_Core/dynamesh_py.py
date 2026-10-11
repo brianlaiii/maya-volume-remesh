@@ -4,6 +4,7 @@ from array import array
 import hashlib
 import importlib.util
 import math
+import os
 from pathlib import Path
 import sys
 import time
@@ -165,7 +166,13 @@ class DynaMesh(om.MPxNode):
             ("voxelWidth", om.MDistance(width), "setMDistance"),
             ("closedBorders", borders, "setInt"),
             ("backend", backend, "setString"),
-            ("backendReason", "Python runtime" if backend == "Python" else status, "setString"),
+            (
+                "backendReason",
+                os.environ.get("MAYA_VOLUME_REMESH_NATIVE_REASON", "Independent Python solver")
+                if backend == "Python"
+                else status,
+                "setString",
+            ),
             ("computeMilliseconds", (time.perf_counter() - started) * 1000, "setDouble"),
             ("volumeBuilds", self._builds, "setInt"),
         )
@@ -199,6 +206,9 @@ def initialize():
             fn.setMin(lo)
         if hi is not None:
             fn.setMax(hi)
+        if name == "resolution":
+            fn.setSoftMin(16)
+            fn.setSoftMax(512)
         fn.keyable = True
         cls.addAttribute(cls.attrs[name])
     for name in ("inputMesh", "inputSmoothMesh"):

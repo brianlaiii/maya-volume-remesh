@@ -4,6 +4,7 @@ from array import array
 import ctypes as ct
 from pathlib import Path
 import time
+import warnings
 
 from maya_volume_remesh._native.standalone import Kernel
 from maya_volume_remesh._native.fallback import failure_details, require_python_fallback
@@ -108,6 +109,21 @@ def _python(meshes, resolution, smoothing, progress):
 
 
 def solve(meshes, resolution, smoothing, backend, progress):
+    from . import openvdb
+
+    if backend == "openvdb":
+        return openvdb.solve(meshes, resolution, smoothing, progress)
+    if backend == "auto" and openvdb.enabled():
+        try:
+            return openvdb.solve(meshes, resolution, smoothing, progress)
+        except openvdb.Unavailable as exc:
+            warnings.warn("OpenVDB unavailable; using built-in C++: " + str(exc), RuntimeWarning)
+    return solve_builtin(meshes, resolution, smoothing, backend, progress)
+
+
+def solve_builtin(meshes, resolution, smoothing, backend, progress):
+    if not 16 <= resolution <= 512:
+        raise ValueError("Built-in C++ requires Resolution from 16 to 512. OpenVDB is required for this value.")
     # Explicit C++ is strict regardless of environment diagnostic overrides.
     report(progress, 0, "C++: preparing backend (first build can take a moment)")
     start = time.perf_counter()

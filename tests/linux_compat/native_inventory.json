@@ -1,0 +1,10 @@
+{
+  "mandatory_suites": ["test_dynamesh_solver", "test_openvdb_solver", "test_openvdb_runtime", "test_standalone_package", "test_dual_backend_loader"],
+  "sources": {
+    "src/MESH_DynaMesh_CPP/dynamesh.cpp": {"tests": ["test_dynamesh_solver", "test_openvdb_solver"]},
+    "src/MESH_DynaMesh_CPP/dynamesh_vdb.cpp": {"tests": ["test_openvdb_solver"]},
+    "tests/test_openvdb_loader.cpp": {"tests": ["test_openvdb_solver"]},
+    "src/MESH_DynaMesh_CPP/dynamesh_node.cpp": {"unavailable": "Linux Maya SDK/runtime is not present. Portable tests execute its optional sidecar loader and cache API."},
+    "src/MESH_DynaMesh_CPP/dynamesh_cuda.cu": {"unavailable": "NVCC and NVIDIA execution require a separate GPU host."}
+  }
+}

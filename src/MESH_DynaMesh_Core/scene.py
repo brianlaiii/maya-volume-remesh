@@ -122,8 +122,8 @@ def create_node_from_selection(
     paths = selected_mesh_paths()
     if not paths:
         raise ValueError("Select polygon meshes or groups first")
-    if isinstance(resolution, bool) or int(resolution) != resolution or not 16 <= resolution <= 512:
-        raise ValueError("Resolution must be a whole number from 16 to 512")
+    if isinstance(resolution, bool) or int(resolution) != resolution or not 1 <= resolution <= 2_147_483_647:
+        raise ValueError("Resolution must be a positive whole number within Maya's integer range")
     if isinstance(polish, bool) or int(polish) != polish or not 0 <= polish <= 10:
         raise ValueError("Polish must be a whole number from 0 to 10")
     if not math.isfinite(offset):

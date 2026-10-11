@@ -1,18 +1,84 @@
-"""Prefer CUDA/C++ node evaluation, then install the independent Python node."""
+"""Prefer optional OpenVDB, built-in C++, then the independent Python node."""
 
 import hashlib
+import json
 import os
 from pathlib import Path
 import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 
 from .schema import NODE_NAME, VERSION
 
 PLUGIN_DIR_ENV = "MAYA_VOLUME_REMESH_PLUGIN_DIR"
 FORCE_ENV = "MAYA_VOLUME_REMESH_FORCE_PY"
 _cuda_attempted = False
+_vdb_attempted = False
+_vdb_ready = False
+
+
+def _atomic_write(path, data):
+    fd, name = tempfile.mkstemp(prefix=path.name + ".", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+        os.replace(name, path)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
+
+
+def _openvdb(cmds):
+    """Install a content-keyed optional library before registering the Maya node."""
+    global _vdb_attempted, _vdb_ready
+    from .openvdb import enabled
+    from .vdb_build import build, kernel
+
+    if _vdb_attempted or not enabled():
+        return
+    _vdb_attempted = True
+    kernel.preload()
+    source = build()
+    data = source.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()[:20]
+    directory = Path(
+        os.environ.get(PLUGIN_DIR_ENV)
+        or os.path.join(cmds.internalVar(userAppDir=True), str(cmds.about(majorVersion=True)), "plug-ins")
+    )
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / ("mvr_openvdb_" + digest + source.suffix)
+    if target.exists() and target.read_bytes() != data:
+        raise RuntimeError("Refusing to overwrite an edited OpenVDB runtime: " + str(target))
+    manifest = directory / "btDynaMeshVdb.path"
+    marker = directory / "btDynaMeshVdb.path.mvr.json"
+    previous_data = manifest.read_bytes() if manifest.exists() else None
+    previous = previous_data.decode().strip() if previous_data else None
+    if previous and previous != target.name and "btDynaMesh" in (cmds.allNodeTypes() or []):
+        raise RuntimeError("OpenVDB runtime changed. Save and restart Maya.")
+    owned = json.loads(marker.read_text()) if marker.exists() else {}
+    if previous_data and previous != target.name and hashlib.sha256(previous_data).hexdigest() != owned.get("sha256"):
+        raise RuntimeError("Refusing to overwrite an unowned or edited OpenVDB manifest: " + str(manifest))
+    if not target.exists():
+        fd, temporary = tempfile.mkstemp(prefix=target.name + ".", dir=str(directory))
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(data)
+            try:
+                os.link(temporary, target)
+            except FileExistsError:
+                if target.read_bytes() != data:
+                    raise RuntimeError("Refusing to overwrite an edited OpenVDB runtime: " + str(target))
+        finally:
+            os.unlink(temporary)
+    payload = (target.name + "\n").encode()
+    if previous_data != payload:
+        _atomic_write(manifest, payload)
+    if previous_data is None or owned:
+        _atomic_write(marker, json.dumps({"sha256": hashlib.sha256(payload).hexdigest()}).encode())
+    os.environ["MAYA_VOLUME_REMESH_OPENVDB_LIBRARY"] = str(target)
+    _vdb_ready = True
 
 
 def _cuda(cmds):
@@ -88,10 +154,19 @@ def ensure_loaded(backend="auto", prepare_cuda=True):
     )
 
     def native():
-        path = load_native_node(cmds, NODE_NAME, config, PLUGIN_DIR_ENV)
+        try:
+            _openvdb(cmds)
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            os.environ["MAYA_VOLUME_REMESH_OPENVDB_REASON"] = str(exc)
+            cmds.warning("OpenVDB unavailable; using built-in C++. " + str(exc))
+        try:
+            path = load_native_node(cmds, NODE_NAME, config, PLUGIN_DIR_ENV)
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            os.environ["MAYA_VOLUME_REMESH_NATIVE_REASON"] = str(exc)
+            raise
         # The CUDA binary is immutable and is first resolved during evaluation.
         # This also supports C++ already loaded by the manual initializer.
-        if prepare_cuda:
+        if prepare_cuda and not _vdb_ready:
             try:
                 _cuda(cmds)
             except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
