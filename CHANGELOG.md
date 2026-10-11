@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — 0.2.0 local prototype
+## 0.2.0 — 2026-10-11
 
 - Optional sparse OpenVDB solid union, ported from the upstream DynaMesh solver.
 - Automatic recovery to the built-in C++ solver and independent Python node.
@@ -10,7 +10,8 @@
 - Runtime diagnostics, immutable sidecar installation, ownership protection, and scene reopening without source imports.
 - Native inventory and an offline standalone Linux validation gate.
 
-This prototype is local. No public push or release has been made.
+OpenVDB is optional and requires a compatible SDK or prebuilt sidecar. This repository
+ships source only. Linux/Windows Maya deployment and CUDA hardware validation remain pending.
 
 ## 0.1.0 — Initial standalone version
 
